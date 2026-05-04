@@ -1,7 +1,24 @@
 import { google } from "googleapis";
+import { PHONE_HEADER, PHONE_KEY } from "./questions.js";
 
-const LEAVERS_SHEET = "leavers";
-const ANSWERS_SHEET = "answers";
+const LEAVERS_SHEET = "Отписавшиеся";
+const ANSWERS_SHEET = "Ответы";
+
+const LEAVERS_HEADERS = [
+  "ID пользователя",
+  "Юзернейм",
+  "Имя",
+  "Ссылка на пользователя",
+  "ID группы",
+  "Название группы",
+  "Дата отписки",
+  "Статус",
+  "Ссылка на интервью",
+  "Готовое сообщение для админа",
+  "Ответы JSON",
+  "Дата завершения опроса",
+  "Телефон бонусной карты"
+];
 
 function getAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -22,32 +39,25 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth: getAuth() });
 }
 
-export async function ensureHeaders(questionKeys = []) {
+export async function ensureHeaders(questions = []) {
   const sheets = getSheetsClient();
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
   await ensureSheetExists(sheets, spreadsheetId, LEAVERS_SHEET);
   await ensureSheetExists(sheets, spreadsheetId, ANSWERS_SHEET);
 
-  await writeHeaderIfEmpty(sheets, spreadsheetId, `${LEAVERS_SHEET}!A1:J1`, [
-    "user_id",
-    "username",
-    "first_name",
-    "group_id",
-    "group_title",
-    "left_at",
-    "status",
-    "interview_link",
-    "answers_json",
-    "completed_at"
-  ]);
+  await writeHeaderIfEmpty(sheets, spreadsheetId, `${LEAVERS_SHEET}!A1:${columnLetter(LEAVERS_HEADERS.length)}1`, LEAVERS_HEADERS);
 
-  await writeHeaderIfEmpty(sheets, spreadsheetId, `${ANSWERS_SHEET}!A1:${columnLetter(3 + questionKeys.length)}1`, [
-    "user_id",
-    "username",
-    ...questionKeys,
-    "completed_at"
-  ]);
+  const answerHeaders = [
+    "ID пользователя",
+    "Юзернейм",
+    "Имя",
+    ...questions.map((q) => q.header || q.key),
+    PHONE_HEADER,
+    "Дата завершения опроса"
+  ];
+
+  await writeHeaderIfEmpty(sheets, spreadsheetId, `${ANSWERS_SHEET}!A1:${columnLetter(answerHeaders.length)}1`, answerHeaders);
 }
 
 async function ensureSheetExists(sheets, spreadsheetId, title) {
@@ -90,16 +100,33 @@ async function getRows(sheetName) {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!A:Z`
+    range: `${sheetName}!A:AZ`
   });
   return res.data.values || [];
+}
+
+function userDisplayName(user) {
+  if (user.username) return `@${user.username}`;
+  return user.first_name || String(user.id);
+}
+
+function makeUserLinkFormula(user) {
+  const label = userDisplayName(user).replace(/"/g, "'");
+  if (user.username) {
+    return `=HYPERLINK("https://t.me/${user.username}", "${label}")`;
+  }
+  return `=HYPERLINK("tg://user?id=${user.id}", "${label}")`;
+}
+
+export function makeAdminMessage(interviewLink) {
+  return `Привет! Недавно ты отписался от нашего канала Pick me. Мы хотим становиться лучше и просим тебя пройти короткий опрос. За участие в опросе мы начислим тебе 50 рублей на бонусную карту. Поехали! ${interviewLink}`;
 }
 
 export async function findLeaverRow(userId, groupId = null) {
   const rows = await getRows(LEAVERS_SHEET);
   for (let i = 1; i < rows.length; i += 1) {
     const rowUserId = String(rows[i][0] || "");
-    const rowGroupId = String(rows[i][3] || "");
+    const rowGroupId = String(rows[i][4] || "");
     if (rowUserId === String(userId) && (!groupId || rowGroupId === String(groupId))) {
       return { rowNumber: i + 1, row: rows[i] };
     }
@@ -113,21 +140,26 @@ export async function appendLeaver({ user, chat, leftAt, interviewLink }) {
 
   const sheets = getSheetsClient();
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  const adminMessage = makeAdminMessage(interviewLink);
+
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${LEAVERS_SHEET}!A:J`,
-    valueInputOption: "RAW",
+    range: `${LEAVERS_SHEET}!A:M`,
+    valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
       values: [[
         user.id,
         user.username ? `@${user.username}` : "",
         user.first_name || "",
+        makeUserLinkFormula(user),
         chat.id,
         chat.title || "",
         leftAt,
-        "left_detected",
+        "Отписался",
         interviewLink,
+        adminMessage,
+        "",
         "",
         ""
       ]]
@@ -144,41 +176,51 @@ export async function updateLeaverStatusByUserId(userId, status) {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${LEAVERS_SHEET}!G${found.rowNumber}:G${found.rowNumber}`,
+    range: `${LEAVERS_SHEET}!H${found.rowNumber}:H${found.rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [[status]] }
   });
   return true;
 }
 
-export async function saveInterviewResult({ user, answers, questionKeys }) {
+export async function saveInterviewResult({ user, answers, questions }) {
   const found = await findLeaverRow(user.id);
   const completedAt = new Date().toISOString();
-  const answersJson = JSON.stringify(answers);
+  const answersJson = JSON.stringify(answers, null, 0);
+  const phone = answers[PHONE_KEY] || "";
   const sheets = getSheetsClient();
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
   if (found) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${LEAVERS_SHEET}!G${found.rowNumber}:J${found.rowNumber}`,
+      range: `${LEAVERS_SHEET}!H${found.rowNumber}:M${found.rowNumber}`,
       valueInputOption: "RAW",
       requestBody: {
-        values: [["completed", found.row[7] || "", answersJson, completedAt]]
+        values: [[
+          "Опрос пройден",
+          found.row[8] || "",
+          found.row[9] || "",
+          answersJson,
+          completedAt,
+          phone
+        ]]
       }
     });
   }
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${ANSWERS_SHEET}!A:Z`,
+    range: `${ANSWERS_SHEET}!A:AZ`,
     valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
       values: [[
         user.id,
         user.username ? `@${user.username}` : "",
-        ...questionKeys.map((key) => answers[key] || ""),
+        user.first_name || "",
+        ...questions.map((q) => answers[q.key] || ""),
+        phone,
         completedAt
       ]]
     }

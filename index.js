@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import { Bot, webhookCallback } from "grammy";
-import { QUESTIONS } from "./questions.js";
+import { PHONE_KEY, QUESTIONS } from "./questions.js";
 import {
   appendLeaver,
   ensureHeaders,
@@ -17,7 +17,6 @@ for (const name of requiredEnv) {
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 const sessions = new Map();
-const questionKeys = QUESTIONS.map((q) => q.key);
 const allowedGroupIds = (process.env.ALLOWED_GROUP_IDS || "")
   .split(",")
   .map((id) => id.trim())
@@ -50,7 +49,7 @@ bot.command("start", async (ctx) => {
 
   if (!payload?.startsWith("interview_")) {
     await ctx.reply(
-      "Привет! Я бот для коротких интервью после выхода из группы. Открой ссылку, которую тебе прислал админ."
+      "Привет! Я бот для короткого опроса после отписки. Открой персональную ссылку, которую тебе прислал админ."
     );
     return;
   }
@@ -69,10 +68,12 @@ bot.command("start", async (ctx) => {
 
   sessions.set(user.id, {
     index: 0,
+    phase: "questions",
     answers: {}
   });
 
-  await updateLeaverStatusByUserId(user.id, "interview_started");
+  await updateLeaverStatusByUserId(user.id, "Опрос начат");
+  await ctx.reply("Спасибо за участие! Я задам тебе несколько коротких вопросов. Приз — в конце 🎁");
   await ctx.reply(QUESTIONS[0].text);
 });
 
@@ -81,12 +82,28 @@ bot.on("message:text", async (ctx) => {
   const session = sessions.get(user.id);
 
   if (!session) {
-    await ctx.reply("Чтобы начать интервью, открой персональную ссылку от админа.");
+    await ctx.reply("Чтобы начать опрос, открой персональную ссылку от админа.");
+    return;
+  }
+
+  const text = ctx.message.text.trim();
+
+  if (session.phase === "phone") {
+    session.answers[PHONE_KEY] = text;
+
+    await saveInterviewResult({
+      user,
+      answers: session.answers,
+      questions: QUESTIONS
+    });
+
+    sessions.delete(user.id);
+    await ctx.reply("Спасибо! Ответы и номер телефона записаны. Мы начислим бонус после проверки 🙌");
     return;
   }
 
   const currentQuestion = QUESTIONS[session.index];
-  session.answers[currentQuestion.key] = ctx.message.text.trim();
+  session.answers[currentQuestion.key] = text;
   session.index += 1;
 
   if (session.index < QUESTIONS.length) {
@@ -95,14 +112,9 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
-  await saveInterviewResult({
-    user,
-    answers: session.answers,
-    questionKeys
-  });
-  sessions.delete(user.id);
-
-  await ctx.reply("Спасибо! Ответы записаны. Ты очень помог нам улучшить группу 🙌");
+  session.phase = "phone";
+  sessions.set(user.id, session);
+  await ctx.reply("Спасибо, что ответил на вопросы. Напиши номер телефона, к которому привязана бонусная карта Pick me.");
 });
 
 bot.on("chat_member", async (ctx) => {
@@ -127,7 +139,7 @@ bot.on("chat_member", async (ctx) => {
 });
 
 async function main() {
-  await ensureHeaders(questionKeys);
+  await ensureHeaders(QUESTIONS);
 
   const app = express();
   app.use(express.json());
