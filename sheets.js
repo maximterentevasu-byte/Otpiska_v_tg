@@ -110,16 +110,41 @@ function userDisplayName(user) {
   return user.first_name || String(user.id);
 }
 
+function escapeForFormula(value) {
+  return String(value || "").replace(/"/g, "'");
+}
+
 function makeUserLinkFormula(user) {
-  const label = userDisplayName(user).replace(/"/g, "'");
+  const label = escapeForFormula(userDisplayName(user));
+
+  // Для русской локали Google Sheets разделитель аргументов в формулах — точка с запятой.
+  // Если у пользователя есть username, админ сможет открыть публичный Telegram-профиль.
   if (user.username) {
-    return `=HYPERLINK("https://t.me/${user.username}", "${label}")`;
+    const cleanUsername = String(user.username).replace(/^@/, "");
+    return `=HYPERLINK("https://t.me/${cleanUsername}"; "@${escapeForFormula(cleanUsername)}")`;
   }
-  return `=HYPERLINK("tg://user?id=${user.id}", "${label}")`;
+
+  // Fallback для пользователей без username. Ссылка открывает профиль по Telegram ID в приложении.
+  return `=HYPERLINK("tg://user?id=${user.id}"; "${label}")`;
+}
+
+function makeInterviewLinkFormula(interviewLink) {
+  return `=HYPERLINK("${escapeForFormula(interviewLink)}"; "Старт")`;
 }
 
 export function makeAdminMessage(interviewLink) {
-  return `Привет! Недавно ты отписался от нашего канала Pick me. Мы хотим становиться лучше и просим тебя пройти короткий опрос. За участие в опросе мы начислим тебе 50 рублей на бонусную карту. Поехали! ${interviewLink}`;
+  return [
+    "Привет! 👋",
+    "",
+    "Недавно ты отписался от нашего канала Pick me. Нам очень важно понять, что можно улучшить.",
+    "",
+    "Будем благодарны, если пройдёшь короткий опрос — это займёт пару минут.",
+    "",
+    "🎁 За участие начислим 50 рублей на бонусную карту Pick me.",
+    "",
+    "Поехали! 🚀",
+    interviewLink
+  ].join("\n");
 }
 
 export async function findLeaverRow(userId, groupId = null) {
@@ -157,7 +182,7 @@ export async function appendLeaver({ user, chat, leftAt, interviewLink }) {
         chat.title || "",
         leftAt,
         "Отписался",
-        interviewLink,
+        makeInterviewLinkFormula(interviewLink),
         adminMessage,
         "",
         "",
