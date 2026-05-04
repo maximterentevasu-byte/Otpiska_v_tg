@@ -130,11 +130,26 @@ async function main() {
   await ensureHeaders(questionKeys);
 
   const app = express();
+  app.use(express.json());
+
   app.get("/", (_req, res) => res.send("tg-custdev-bot is running"));
   app.get("/health", (_req, res) => res.json({ ok: true }));
 
   const secretPath = `/telegram/${process.env.WEBHOOK_SECRET || "webhook"}`;
-  app.use(secretPath, webhookCallback(bot, "express"));
+  const telegramWebhook = webhookCallback(bot, "express");
+
+  app.post(secretPath, (req, res, next) => {
+    if (!req.body || typeof req.body.update_id === "undefined") {
+      console.warn("Ignored invalid webhook request:", req.body);
+      return res.sendStatus(200);
+    }
+
+    return telegramWebhook(req, res, next);
+  });
+
+  app.get(secretPath, (_req, res) => {
+    res.status(200).send("Telegram webhook endpoint is active");
+  });
 
   const port = Number(process.env.PORT || 3000);
   app.listen(port, async () => {
