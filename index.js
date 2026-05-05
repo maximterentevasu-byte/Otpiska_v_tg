@@ -1,4 +1,6 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import { Bot, webhookCallback } from "grammy";
 import { PHONE_KEY, QUESTIONS } from "./questions.js";
@@ -10,13 +12,17 @@ import {
   updateLeaverStatusByUserId
 } from "./sheets.js";
 
+// Проверка env-переменных
 const requiredEnv = ["TELEGRAM_BOT_TOKEN", "BOT_USERNAME", "GOOGLE_SHEET_ID"];
 for (const name of requiredEnv) {
-  if (!process.env[name]) throw new Error(`Missing required env var: ${name}`);
+  if (!process.env[name]) {
+    throw new Error(`Missing required env var: ${name}`);
+  }
 }
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 const sessions = new Map();
+
 const allowedGroupIds = (process.env.ALLOWED_GROUP_IDS || "")
   .split(",")
   .map((id) => id.trim())
@@ -55,8 +61,11 @@ bot.command("start", async (ctx) => {
   }
 
   const payloadUserId = payload.replace("interview_", "");
+
   if (String(user.id) !== String(payloadUserId)) {
-    await ctx.reply("Эта ссылка предназначена для другого пользователя. Попроси админа отправить твою персональную ссылку.");
+    await ctx.reply(
+      "Эта ссылка предназначена для другого пользователя. Попроси админа отправить твою персональную ссылку."
+    );
     return;
   }
 
@@ -73,7 +82,11 @@ bot.command("start", async (ctx) => {
   });
 
   await updateLeaverStatusByUserId(user.id, "Опрос начат");
-  await ctx.reply("Спасибо за участие! Я задам тебе несколько коротких вопросов. Приз — в конце 🎁");
+
+  await ctx.reply(
+    "Спасибо за участие! Я задам тебе несколько коротких вопросов. Приз — в конце 🎁"
+  );
+
   await ctx.reply(QUESTIONS[0].text);
 });
 
@@ -88,6 +101,7 @@ bot.on("message:text", async (ctx) => {
 
   const text = ctx.message.text.trim();
 
+  // этап телефона
   if (session.phase === "phone") {
     session.answers[PHONE_KEY] = text;
 
@@ -98,7 +112,11 @@ bot.on("message:text", async (ctx) => {
     });
 
     sessions.delete(user.id);
-    await ctx.reply("Спасибо! Ответы и номер телефона записаны. Мы начислим бонус после проверки 🙌");
+
+    await ctx.reply(
+      "Спасибо! Ответы и номер телефона записаны. Мы начислим бонус после проверки 🙌"
+    );
+
     return;
   }
 
@@ -114,7 +132,10 @@ bot.on("message:text", async (ctx) => {
 
   session.phase = "phone";
   sessions.set(user.id, session);
-  await ctx.reply("Спасибо, что ответил на вопросы. Напиши номер телефона, к которому привязана бонусная карта Pick me.");
+
+  await ctx.reply(
+    "Спасибо, что ответил на вопросы. Напиши номер телефона, к которому привязана бонусная карта Pick me."
+  );
 });
 
 bot.on("chat_member", async (ctx) => {
@@ -134,7 +155,10 @@ bot.on("chat_member", async (ctx) => {
     const interviewLink = makeInterviewLink(user.id);
 
     await appendLeaver({ user, chat, leftAt, interviewLink });
-    console.log(`User left: ${user.id} ${user.username || ""} from ${chat.id}. Link: ${interviewLink}`);
+
+    console.log(
+      `User left: ${user.id} ${user.username || ""} from ${chat.id}. Link: ${interviewLink}`
+    );
   }
 });
 
@@ -164,14 +188,17 @@ async function main() {
   });
 
   const port = Number(process.env.PORT || 3000);
+
   app.listen(port, async () => {
     console.log(`Server listening on port ${port}`);
 
     if (process.env.PUBLIC_URL) {
       const webhookUrl = `${process.env.PUBLIC_URL}${secretPath}`;
+
       await bot.api.setWebhook(webhookUrl, {
         allowed_updates: ["message", "chat_member"]
       });
+
       console.log(`Webhook set: ${webhookUrl}`);
     } else {
       console.warn("PUBLIC_URL is empty. Webhook was not set automatically.");
