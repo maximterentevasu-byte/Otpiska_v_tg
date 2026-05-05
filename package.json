@@ -1,19 +1,21 @@
 {
   "name": "tg-custdev-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for customer development survey",
+  "description": "Telegram custdev bot: tracks users leaving groups and runs interview survey via deep links, saving results to Google Sheets.",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js"
-  },
-  "dependencies": {
-    "express": "^4.19.2",
-    "grammy": "^1.21.0",
-    "dotenv": "^16.4.5"
+    "dev": "node --watch index.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@grammyjs/runner": "^2.0.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "grammy": "^1.34.0"
   }
 }
