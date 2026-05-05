@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { Bot, webhookCallback } from "grammy";
 import { PHONE_KEY, QUESTIONS } from "./questions.js";
