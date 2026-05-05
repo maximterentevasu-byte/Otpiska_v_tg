@@ -1,4 +1,8 @@
-import "dotenv/config";
+// Загружаем dotenv только локально; на Railway переменные уже в process.env
+if (process.env.NODE_ENV !== "production") {
+  const { config } = await import("dotenv");
+  config();
+}
 import express from "express";
 import { Bot, webhookCallback } from "grammy";
 import { PHONE_KEY, QUESTIONS } from "./questions.js";
